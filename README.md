@@ -143,6 +143,7 @@ uv sync
 "Analyze Bitcoin with all technical indicators"
 "Find crypto coins with Bollinger Band squeeze (BBW < 0.05)"
 "Show me coins with strong buy signals (rating +2)"
+"Analyze IBM stock on NYSE with technical indicators"
 ```
 
 **Pattern Recognition:**
@@ -155,8 +156,9 @@ uv sync
 **Advanced Queries:**
 ```
 "Compare AAPL vs TSLA technical indicators"
-"Find high-volume crypto with RSI below 30" 
+"Find high-volume crypto with RSI below 30"
 "Show me NASDAQ stocks with strong momentum"
+"Find NYSE stocks with Bollinger Band squeeze"
 ```
 
 ## 🎯 Understanding the Bollinger Band Rating System
@@ -189,6 +191,7 @@ Our proprietary rating system helps identify trading opportunities:
 
 ### 📊 Traditional Markets
 - **NASDAQ** (NASDAQ) - US tech stocks (AAPL, MSFT, TSLA)
+- **NYSE** (NYSE) - New York Stock Exchange (IBM, GE, JPM)
 - **BIST** (BIST) - Turkish stock market (Borsa İstanbul)
 - More markets coming soon!
 

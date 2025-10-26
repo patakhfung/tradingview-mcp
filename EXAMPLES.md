@@ -40,6 +40,25 @@ This guide shows real-world examples of how to use the TradingView MCP Server wi
 3. **DOTUSDT** - $6.12 (-8.9%)
 ```
 
+#### NYSE Stock Screening
+```
+💬 You: "Show me the top 5 gainers on NYSE today"
+
+🤖 Claude: [Uses: top_gainers(exchange="NYSE", timeframe="1D", limit=5)]
+
+📈 Top 5 NYSE Gainers (Daily):
+
+1. **NYSE:IBM** - $293.87 (+5.2%)
+   - Volume: 4.2M shares
+   - RSI: 65.4 (Bullish)
+
+2. **NYSE:GE** - $168.45 (+4.8%)
+   - Volume: 8.7M shares
+   - RSI: 62.1 (Strong)
+
+[... and so on]
+```
+
 ### Technical Analysis
 
 #### Individual Coin Analysis

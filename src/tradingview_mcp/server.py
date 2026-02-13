@@ -423,6 +423,8 @@ def coin_analysis(
             
             # Volume analysis
             volume = indicators.get("volume", 0)
+            avg_volume = indicators.get("volume.SMA20", 0)  # 20-day average volume
+            volume_ratio = round(volume / avg_volume, 2) if avg_volume and avg_volume > 0 else None
             
             # Price levels
             high = indicators.get("high", 0)
@@ -442,7 +444,9 @@ def coin_analysis(
                     "low": round(low, 6) if low else None,
                     "close": round(close_price, 6) if close_price else None,
                     "change_percent": metrics['change'],
-                    "volume": volume
+                    "volume": volume,
+                    "avg_volume": avg_volume,
+                    "volume_ratio": volume_ratio
                 },
                 "bollinger_analysis": {
                     "rating": metrics['rating'],

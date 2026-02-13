@@ -76,6 +76,21 @@ def _tf_to_tv_resolution(tf: Optional[str]) -> Optional[str]:
 	return {"5m": "5", "15m": "15", "1h": "60", "4h": "240", "1D": "1D", "1W": "1W", "1M": "1M"}.get(tf)
 
 
+def _get_market_for_exchange(exchange: str) -> str:
+    """Return the appropriate TradingView market for the given exchange."""
+    exchange_upper = exchange.upper()
+    if exchange_upper in ('NYSE', 'NASDAQ', 'AMEX', 'BATS', 'ARCA'):
+        return "america"
+    elif exchange_upper in ('LSE', 'LON'):
+        return "uk"
+    elif exchange_upper in ('HKEX', 'HKSE'):
+        return "hongkong"
+    elif exchange_upper in ('TSE', 'TYO'):
+        return "japan"
+    else:
+        return "crypto"
+
+
 def _fetch_bollinger_analysis(exchange: str, timeframe: str = "4h", limit: int = 50, bbw_filter: float = None) -> List[Row]:
     """Fetch analysis using tradingview_ta with bollinger band logic from the original screener."""
     if not TRADINGVIEW_TA_AVAILABLE:
@@ -235,7 +250,7 @@ def _fetch_multi_changes(exchange: str, timeframes: List[str] | None, base_timef
 			cols.append(c)
 			seen.add(c)
 
-	q = Query().set_markets("crypto").select(*cols)
+	q = Query().set_markets(_get_market_for_exchange(exchange)).select(*cols)
 	if exchange:
 		q = q.where(Column("exchange") == exchange.upper())
 	if limit:
@@ -384,8 +399,8 @@ def coin_analysis(
         else:
             full_symbol = symbol.upper()
         
-        screener = EXCHANGE_SCREENER.get(exchange, "crypto")
-        
+        screener = EXCHANGE_SCREENER.get(exchange, _get_market_for_exchange(exchange))
+
         try:
             analysis = get_multiple_analysis(
                 screener=screener,
@@ -423,7 +438,18 @@ def coin_analysis(
             
             # Volume analysis
             volume = indicators.get("volume", 0)
-            avg_volume = indicators.get("volume.SMA20", 0)  # 20-day average volume
+            avg_volume = 0
+            if TRADINGVIEW_SCREENER_AVAILABLE:
+                try:
+                    market = _get_market_for_exchange(exchange)
+                    vq = Query().set_markets(market).select(
+                        'name', 'average_volume_30d_calc'
+                    ).set_tickers(full_symbol).limit(1)
+                    _vt, vdf = vq.get_scanner_data()
+                    if vdf is not None and not vdf.empty:
+                        avg_volume = vdf.iloc[0].get('average_volume_30d_calc', 0) or 0
+                except Exception:
+                    pass
             volume_ratio = round(volume / avg_volume, 2) if avg_volume and avg_volume > 0 else None
             
             # Price levels
@@ -897,7 +923,7 @@ def _fetch_multi_timeframe_patterns(exchange: str, symbols: List[str], base_tf: 
             "RSI"
         ]
         
-        q = Query().set_markets("crypto").select(*cols)
+        q = Query().set_markets(_get_market_for_exchange(exchange)).select(*cols)
         q = q.where(Column("exchange") == exchange.upper())
         q = q.limit(len(symbols))
         

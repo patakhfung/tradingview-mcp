@@ -595,15 +595,28 @@ def coin_analysis(
             days_until_earnings = None
             earnings_within_7_days = None
             if is_stock_exchange:
-                earnings_date_str = screener_data.get('earnings_release_next_date')
-                if earnings_date_str:
+                earnings_date_raw = screener_data.get('earnings_release_next_date')
+                if earnings_date_raw is not None and earnings_date_raw != 0:
                     try:
-                        if isinstance(earnings_date_str, (int, float)):
-                            earnings_date = datetime.fromtimestamp(earnings_date_str / 1000).date()
-                        else:
-                            earnings_date = datetime.strptime(str(earnings_date_str), "%Y-%m-%d").date()
-                        days_until_earnings = (earnings_date - date.today()).days
-                        earnings_within_7_days = 0 <= days_until_earnings <= 7
+                        if isinstance(earnings_date_raw, (int, float)):
+                            # TradingView can return timestamps in seconds or milliseconds
+                            # Timestamps after year 2000 in seconds: > 946684800
+                            # Timestamps after year 2000 in milliseconds: > 946684800000
+                            if earnings_date_raw > 946684800000:
+                                earnings_date = datetime.fromtimestamp(earnings_date_raw / 1000).date()
+                            elif earnings_date_raw > 946684800:
+                                earnings_date = datetime.fromtimestamp(earnings_date_raw).date()
+                        elif isinstance(earnings_date_raw, str) and earnings_date_raw:
+                            for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y"]:
+                                try:
+                                    earnings_date = datetime.strptime(earnings_date_raw, fmt).date()
+                                    break
+                                except ValueError:
+                                    continue
+
+                        if earnings_date:
+                            days_until_earnings = (earnings_date - date.today()).days
+                            earnings_within_7_days = 0 <= days_until_earnings <= 7
                     except Exception:
                         earnings_date = None
                         days_until_earnings = None

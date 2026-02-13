@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from datetime import datetime, date
 from typing import Any, Dict, List, Optional
 from typing_extensions import TypedDict
 from mcp.server.fastmcp import FastMCP
@@ -461,6 +462,7 @@ def coin_analysis(
                         'ADX+DI', 'ADX-DI',
                         'EMA50', 'EMA200', 'SMA150',
                         'Recommend.MA', 'SMA200',
+                        'Perf.W', 'gap',
                     ]
                     # Add stock-only columns
                     is_stock_exchange = exchange.upper() in ('NYSE', 'NASDAQ', 'AMEX', 'BATS', 'ARCA')
@@ -471,6 +473,7 @@ def coin_analysis(
                             'Pivot.M.Classic.S1', 'Pivot.M.Classic.S2', 'Pivot.M.Classic.S3',
                             'Pivot.M.Classic.Middle',
                             'Low.3M', 'Low.6M', 'High.3M', 'High.6M',
+                            'earnings_release_next_date',
                         ])
                     vq = Query().set_markets(market).select(
                         *screener_cols
@@ -587,6 +590,48 @@ def coin_analysis(
             else:
                 rs_1m = rs_3m = rs_6m = None
 
+            # Earnings date (stocks only)
+            earnings_date = None
+            days_until_earnings = None
+            earnings_within_7_days = None
+            if is_stock_exchange:
+                earnings_date_str = screener_data.get('earnings_release_next_date')
+                if earnings_date_str:
+                    try:
+                        if isinstance(earnings_date_str, (int, float)):
+                            earnings_date = datetime.fromtimestamp(earnings_date_str / 1000).date()
+                        else:
+                            earnings_date = datetime.strptime(str(earnings_date_str), "%Y-%m-%d").date()
+                        days_until_earnings = (earnings_date - date.today()).days
+                        earnings_within_7_days = 0 <= days_until_earnings <= 7
+                    except Exception:
+                        earnings_date = None
+                        days_until_earnings = None
+                        earnings_within_7_days = None
+
+            # Gap detection
+            gap_pct = screener_data.get('gap', 0) or 0
+            if gap_pct > 1:
+                gap_type = "GAP_UP"
+            elif gap_pct < -1:
+                gap_type = "GAP_DOWN"
+            else:
+                gap_type = "NONE"
+
+            # Weekly performance
+            perf_w = screener_data.get('Perf.W', 0) or 0
+
+            # Climax detection
+            sma20 = indicators.get("SMA20", 0) or 0
+            change_percent = metrics['change']
+            pct_above_20ma = round(((current_price - sma20) / sma20) * 100, 2) if sma20 and sma20 > 0 else None
+            pct_above_50ma = round(((current_price - ema50) / ema50) * 100, 2) if ema50 and ema50 > 0 else None
+            climax_above_20ma = pct_above_20ma > 30 if pct_above_20ma is not None else False
+            climax_above_50ma = pct_above_50ma > 30 if pct_above_50ma is not None else False
+            climax_weekly_gain = perf_w > 25 if perf_w else False
+            climax_daily_gain = change_percent > 10 if change_percent else False
+            climax_count = sum([climax_above_20ma, climax_above_50ma, climax_weekly_gain, climax_daily_gain])
+
             return {
                 "symbol": full_symbol,
                 "exchange": exchange,
@@ -638,6 +683,7 @@ def coin_analysis(
                     "stoch_d": round(stoch_d, 2)
                 },
                 "performance": {
+                    "perf_w": round(perf_w, 2) if perf_w else None,
                     "perf_1m": round(perf_1m, 2) if perf_1m else None,
                     "perf_3m": round(perf_3m, 2) if perf_3m else None,
                     "perf_6m": round(perf_6m, 2) if perf_6m else None,
@@ -690,6 +736,27 @@ def coin_analysis(
                     "above_3m_high": current_price > high_3m if high_3m else None,
                     "volume_confirmed": volume_ratio >= 1.5 if volume_ratio else False,
                     "valid_breakout": (current_price > pivot_r1 if pivot_r1 else False) and (volume_ratio >= 1.5 if volume_ratio else False),
+                },
+                "earnings": {
+                    "next_date": str(earnings_date) if earnings_date else None,
+                    "days_until": days_until_earnings,
+                    "within_7_days": earnings_within_7_days,
+                    "warning": earnings_within_7_days is True,
+                },
+                "gap_analysis": {
+                    "gap_pct": round(gap_pct, 2) if gap_pct else 0,
+                    "gap_type": gap_type,
+                    "significant_gap": abs(gap_pct) > 3 if gap_pct else False,
+                },
+                "climax_check": {
+                    "pct_above_20ma": pct_above_20ma,
+                    "pct_above_50ma": pct_above_50ma,
+                    "above_30pct_20ma": climax_above_20ma,
+                    "above_30pct_50ma": climax_above_50ma,
+                    "weekly_gain_over_25pct": climax_weekly_gain,
+                    "daily_gain_over_10pct": climax_daily_gain,
+                    "climax_score": climax_count,
+                    "climax_warning": climax_count >= 2,
                 },
                 "risk_data": {
                     "atr": round(atr, 2) if atr else None,

@@ -460,7 +460,12 @@ def coin_analysis(
                         'ATR', 'beta_1_year', 'Volatility.D',
                         'ADX+DI', 'ADX-DI',
                         'EMA50', 'EMA200', 'SMA150',
+                        'Recommend.MA', 'SMA200',
                     ]
+                    # Add sector/industry for stock exchanges only
+                    is_stock_exchange = exchange.upper() in ('NYSE', 'NASDAQ', 'AMEX', 'BATS', 'ARCA')
+                    if is_stock_exchange:
+                        screener_cols.extend(['sector', 'industry'])
                     vq = Query().set_markets(market).select(
                         *screener_cols
                     ).set_tickers(full_symbol).limit(1)
@@ -504,6 +509,45 @@ def coin_analysis(
             ema50 = screener_data.get('EMA50', 0) or indicators.get("EMA50", 0) or 0
             sma150 = screener_data.get('SMA150', 0) or 0
             ema200 = screener_data.get('EMA200', 0) or indicators.get("EMA200", 0) or 0
+
+            # 200MA trend detection
+            ma_recommendation = screener_data.get('Recommend.MA', 0) or 0
+            sma200 = screener_data.get('SMA200', 0)
+            sma200_trending_up = ma_recommendation > 0
+
+            # Sector/Industry info (stocks only)
+            is_stock_exchange = exchange.upper() in ('NYSE', 'NASDAQ', 'AMEX', 'BATS', 'ARCA')
+
+            # RS vs SPY calculation (US stocks only)
+            if is_stock_exchange and TRADINGVIEW_SCREENER_AVAILABLE:
+                try:
+                    spy_query = (
+                        Query()
+                        .select('Perf.1M', 'Perf.3M', 'Perf.6M')
+                        .where(Column('name') == 'SPY')
+                        .set_markets('america')
+                        .limit(1)
+                    )
+                    spy_result = spy_query.get_scanner_data()
+                    if spy_result[1] is not None and not spy_result[1].empty:
+                        spy_row = spy_result[1].iloc[0]
+                        spy_perf_1m = spy_row.get('Perf.1M', 0) or 0
+                        spy_perf_3m = spy_row.get('Perf.3M', 0) or 0
+                        spy_perf_6m = spy_row.get('Perf.6M', 0) or 0
+                    else:
+                        spy_perf_1m = spy_perf_3m = spy_perf_6m = 0
+                except Exception:
+                    spy_perf_1m = spy_perf_3m = spy_perf_6m = 0
+            else:
+                spy_perf_1m = spy_perf_3m = spy_perf_6m = None
+
+            # Calculate relative strength (outperformance vs benchmark)
+            if spy_perf_3m is not None:
+                rs_1m = round(perf_1m - spy_perf_1m, 2) if perf_1m else None
+                rs_3m = round(perf_3m - spy_perf_3m, 2) if perf_3m else None
+                rs_6m = round(perf_6m - spy_perf_6m, 2) if perf_6m else None
+            else:
+                rs_1m = rs_3m = rs_6m = None
 
             return {
                 "symbol": full_symbol,
@@ -560,6 +604,24 @@ def coin_analysis(
                     "perf_3m": round(perf_3m, 2) if perf_3m else None,
                     "perf_6m": round(perf_6m, 2) if perf_6m else None,
                 },
+                "relative_strength": {
+                    "spy_perf_1m": round(spy_perf_1m, 2) if spy_perf_1m is not None else None,
+                    "spy_perf_3m": round(spy_perf_3m, 2) if spy_perf_3m is not None else None,
+                    "spy_perf_6m": round(spy_perf_6m, 2) if spy_perf_6m is not None else None,
+                    "rs_1m": rs_1m,
+                    "rs_3m": rs_3m,
+                    "rs_6m": rs_6m,
+                    "outperforming_spy": rs_3m > 0 if rs_3m is not None else None,
+                },
+                "ma_analysis": {
+                    "sma200": round(sma200, 2) if sma200 else None,
+                    "ma_recommendation": round(ma_recommendation, 2),
+                    "sma200_trending_up": sma200_trending_up,
+                },
+                "sector_info": {
+                    "sector": screener_data.get('sector') if is_stock_exchange else None,
+                    "industry": screener_data.get('industry') if is_stock_exchange else None,
+                },
                 "risk_data": {
                     "atr": round(atr, 2) if atr else None,
                     "atr_stop": atr_stop,
@@ -577,8 +639,10 @@ def coin_analysis(
                     "price_above_150ma": current_price > sma150 if sma150 else None,
                     "price_above_200ma": current_price > ema200 if ema200 else None,
                     "ma_stacked": (ema50 > sma150 > ema200) if all([ema50, sma150, ema200]) else None,
+                    "sma200_trending_up": sma200_trending_up,
                     "within_25pct_high": pct_from_high <= 25 if pct_from_high is not None else None,
                     "above_25pct_low": pct_above_low >= 25 if pct_above_low is not None else None,
+                    "outperforming_spy": rs_3m > 0 if rs_3m is not None else None,
                 },
                 "market_sentiment": {
                     "overall_rating": metrics['rating'],

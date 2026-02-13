@@ -438,33 +438,80 @@ def coin_analysis(
             
             # Volume analysis
             volume = indicators.get("volume", 0)
-            avg_volume = 0
-            if TRADINGVIEW_SCREENER_AVAILABLE:
-                try:
-                    market = _get_market_for_exchange(exchange)
-                    vq = Query().set_markets(market).select(
-                        'name', 'average_volume_30d_calc'
-                    ).set_tickers(full_symbol).limit(1)
-                    _vt, vdf = vq.get_scanner_data()
-                    if vdf is not None and not vdf.empty:
-                        avg_volume = vdf.iloc[0].get('average_volume_30d_calc', 0) or 0
-                except Exception:
-                    pass
-            volume_ratio = round(volume / avg_volume, 2) if avg_volume and avg_volume > 0 else None
-            
+
             # Price levels
             high = indicators.get("high", 0)
             low = indicators.get("low", 0)
             open_price = indicators.get("open", 0)
             close_price = indicators.get("close", 0)
-            
+            current_price = metrics['price']
+
+            # Fetch extended data from tradingview_screener
+            screener_data = {}
+            if TRADINGVIEW_SCREENER_AVAILABLE:
+                try:
+                    market = _get_market_for_exchange(exchange)
+                    screener_cols = [
+                        'name',
+                        'average_volume_30d_calc', 'average_volume_10d_calc',
+                        'relative_volume_10d_calc',
+                        'price_52_week_high', 'price_52_week_low', 'High.All',
+                        'Perf.1M', 'Perf.3M', 'Perf.6M',
+                        'ATR', 'beta_1_year', 'Volatility.D',
+                        'ADX+DI', 'ADX-DI',
+                        'EMA50', 'EMA200', 'SMA150',
+                    ]
+                    vq = Query().set_markets(market).select(
+                        *screener_cols
+                    ).set_tickers(full_symbol).limit(1)
+                    _vt, vdf = vq.get_scanner_data()
+                    if vdf is not None and not vdf.empty:
+                        screener_data = vdf.iloc[0].to_dict()
+                except Exception:
+                    pass
+
+            # Volume from screener
+            avg_volume = screener_data.get('average_volume_30d_calc', 0) or 0
+            avg_volume_10d = screener_data.get('average_volume_10d_calc', 0) or 0
+            rel_volume = screener_data.get('relative_volume_10d_calc', 0) or 0
+            volume_ratio = round(volume / avg_volume, 2) if avg_volume and avg_volume > 0 else None
+
+            # 52-week and all-time data
+            high_52w = screener_data.get('price_52_week_high', 0) or 0
+            low_52w = screener_data.get('price_52_week_low', 0) or 0
+            all_time_high = screener_data.get('High.All', 0) or 0
+            pct_from_high = round(((high_52w - current_price) / high_52w) * 100, 2) if high_52w else None
+            pct_above_low = round(((current_price - low_52w) / low_52w) * 100, 2) if low_52w else None
+
+            # Performance
+            perf_1m = screener_data.get('Perf.1M', 0) or 0
+            perf_3m = screener_data.get('Perf.3M', 0) or 0
+            perf_6m = screener_data.get('Perf.6M', 0) or 0
+
+            # Risk data
+            atr = screener_data.get('ATR', 0) or 0
+            beta = screener_data.get('beta_1_year') or 0
+            volatility = screener_data.get('Volatility.D', 0) or 0
+            atr_stop = round(current_price - (2 * atr), 2) if atr else None
+            atr_stop_pct = round((2 * atr / current_price) * 100, 2) if atr and current_price else None
+
+            # Trend direction from ADX +/- DI
+            adx_plus = screener_data.get('ADX+DI', 0) or 0
+            adx_minus = screener_data.get('ADX-DI', 0) or 0
+            trend_direction = "BULLISH" if adx_plus > adx_minus else "BEARISH" if adx_minus > adx_plus else "NEUTRAL"
+
+            # Moving averages for Stage 2 check
+            ema50 = screener_data.get('EMA50', 0) or indicators.get("EMA50", 0) or 0
+            sma150 = screener_data.get('SMA150', 0) or 0
+            ema200 = screener_data.get('EMA200', 0) or indicators.get("EMA200", 0) or 0
+
             return {
                 "symbol": full_symbol,
                 "exchange": exchange,
                 "timeframe": timeframe,
                 "timestamp": "real-time",
                 "price_data": {
-                    "current_price": metrics['price'],
+                    "current_price": current_price,
                     "open": round(open_price, 6) if open_price else None,
                     "high": round(high, 6) if high else None,
                     "low": round(low, 6) if low else None,
@@ -472,7 +519,14 @@ def coin_analysis(
                     "change_percent": metrics['change'],
                     "volume": volume,
                     "avg_volume": avg_volume,
-                    "volume_ratio": volume_ratio
+                    "avg_volume_10d": avg_volume_10d,
+                    "volume_ratio": volume_ratio,
+                    "relative_volume": round(rel_volume, 2) if rel_volume else None,
+                    "high_52w": high_52w,
+                    "low_52w": low_52w,
+                    "all_time_high": all_time_high,
+                    "pct_from_high": pct_from_high,
+                    "pct_above_low": pct_above_low,
                 },
                 "bollinger_analysis": {
                     "rating": metrics['rating'],
@@ -481,8 +535,8 @@ def coin_analysis(
                     "bb_upper": round(indicators.get("BB.upper", 0), 6),
                     "bb_middle": round(indicators.get("SMA20", 0), 6),
                     "bb_lower": round(indicators.get("BB.lower", 0), 6),
-                    "position": "Above Upper" if close_price > indicators.get("BB.upper", 0) else 
-                               "Below Lower" if close_price < indicators.get("BB.lower", 0) else 
+                    "position": "Above Upper" if close_price > indicators.get("BB.upper", 0) else
+                               "Below Lower" if close_price < indicators.get("BB.lower", 0) else
                                "Within Bands"
                 },
                 "technical_indicators": {
@@ -490,8 +544,9 @@ def coin_analysis(
                     "rsi_signal": "Overbought" if indicators.get("RSI", 0) > 70 else
                                  "Oversold" if indicators.get("RSI", 0) < 30 else "Neutral",
                     "sma20": round(indicators.get("SMA20", 0), 6),
-                    "ema50": round(indicators.get("EMA50", 0), 6),
-                    "ema200": round(indicators.get("EMA200", 0), 6),
+                    "ema50": round(ema50, 6),
+                    "sma150": round(sma150, 6),
+                    "ema200": round(ema200, 6),
                     "macd": round(macd, 6),
                     "macd_signal": round(macd_signal, 6),
                     "macd_divergence": round(macd - macd_signal, 6),
@@ -499,6 +554,31 @@ def coin_analysis(
                     "trend_strength": "Strong" if adx > 25 else "Weak",
                     "stoch_k": round(stoch_k, 2),
                     "stoch_d": round(stoch_d, 2)
+                },
+                "performance": {
+                    "perf_1m": round(perf_1m, 2) if perf_1m else None,
+                    "perf_3m": round(perf_3m, 2) if perf_3m else None,
+                    "perf_6m": round(perf_6m, 2) if perf_6m else None,
+                },
+                "risk_data": {
+                    "atr": round(atr, 2) if atr else None,
+                    "atr_stop": atr_stop,
+                    "atr_stop_pct": atr_stop_pct,
+                    "beta": round(beta, 2) if beta else None,
+                    "volatility_daily": round(volatility, 2) if volatility else None,
+                },
+                "trend_data": {
+                    "adx_plus": round(adx_plus, 2) if adx_plus else None,
+                    "adx_minus": round(adx_minus, 2) if adx_minus else None,
+                    "trend_direction": trend_direction,
+                },
+                "stage2_check": {
+                    "price_above_50ma": current_price > ema50 if ema50 else None,
+                    "price_above_150ma": current_price > sma150 if sma150 else None,
+                    "price_above_200ma": current_price > ema200 if ema200 else None,
+                    "ma_stacked": (ema50 > sma150 > ema200) if all([ema50, sma150, ema200]) else None,
+                    "within_25pct_high": pct_from_high <= 25 if pct_from_high is not None else None,
+                    "above_25pct_low": pct_above_low >= 25 if pct_above_low is not None else None,
                 },
                 "market_sentiment": {
                     "overall_rating": metrics['rating'],

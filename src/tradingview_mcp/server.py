@@ -462,10 +462,16 @@ def coin_analysis(
                         'EMA50', 'EMA200', 'SMA150',
                         'Recommend.MA', 'SMA200',
                     ]
-                    # Add sector/industry for stock exchanges only
+                    # Add stock-only columns
                     is_stock_exchange = exchange.upper() in ('NYSE', 'NASDAQ', 'AMEX', 'BATS', 'ARCA')
                     if is_stock_exchange:
-                        screener_cols.extend(['sector', 'industry'])
+                        screener_cols.extend([
+                            'sector', 'industry',
+                            'Pivot.M.Classic.R1', 'Pivot.M.Classic.R2', 'Pivot.M.Classic.R3',
+                            'Pivot.M.Classic.S1', 'Pivot.M.Classic.S2', 'Pivot.M.Classic.S3',
+                            'Pivot.M.Classic.Middle',
+                            'Low.3M', 'Low.6M', 'High.3M', 'High.6M',
+                        ])
                     vq = Query().set_markets(market).select(
                         *screener_cols
                     ).set_tickers(full_symbol).limit(1)
@@ -540,6 +546,38 @@ def coin_analysis(
                     spy_perf_1m = spy_perf_3m = spy_perf_6m = 0
             else:
                 spy_perf_1m = spy_perf_3m = spy_perf_6m = None
+
+            # Pivot point analysis (stocks only)
+            if is_stock_exchange:
+                pivot_r1 = screener_data.get('Pivot.M.Classic.R1', 0) or 0
+                pivot_r2 = screener_data.get('Pivot.M.Classic.R2', 0) or 0
+                pivot_r3 = screener_data.get('Pivot.M.Classic.R3', 0) or 0
+                pivot_s1 = screener_data.get('Pivot.M.Classic.S1', 0) or 0
+                pivot_s2 = screener_data.get('Pivot.M.Classic.S2', 0) or 0
+                pivot_s3 = screener_data.get('Pivot.M.Classic.S3', 0) or 0
+                pivot_middle = screener_data.get('Pivot.M.Classic.Middle', 0) or 0
+                distance_to_r1_pct = round(((pivot_r1 - current_price) / current_price) * 100, 2) if pivot_r1 and current_price else None
+                distance_to_r2_pct = round(((pivot_r2 - current_price) / current_price) * 100, 2) if pivot_r2 and current_price else None
+                distance_to_s1_pct = round(((current_price - pivot_s1) / current_price) * 100, 2) if pivot_s1 and current_price else None
+            else:
+                pivot_r1 = pivot_r2 = pivot_r3 = pivot_s1 = pivot_s2 = pivot_s3 = pivot_middle = 0
+                distance_to_r1_pct = distance_to_r2_pct = distance_to_s1_pct = None
+
+            # Base depth analysis (stocks only)
+            if is_stock_exchange:
+                low_3m = screener_data.get('Low.3M', 0) or 0
+                low_6m = screener_data.get('Low.6M', 0) or 0
+                high_3m = screener_data.get('High.3M', 0) or 0
+                high_6m = screener_data.get('High.6M', 0) or 0
+                base_depth_3m_pct = round(((high_3m - low_3m) / high_3m) * 100, 2) if high_3m and low_3m else None
+                base_depth_6m_pct = round(((high_6m - low_6m) / high_6m) * 100, 2) if high_6m and low_6m else None
+                valid_base_depth = base_depth_3m_pct <= 40 if base_depth_3m_pct is not None else None
+                position_in_base_pct = round(((high_3m - current_price) / (high_3m - low_3m)) * 100, 2) if high_3m and low_3m and (high_3m - low_3m) > 0 else None
+            else:
+                low_3m = low_6m = high_3m = high_6m = 0
+                base_depth_3m_pct = base_depth_6m_pct = None
+                valid_base_depth = None
+                position_in_base_pct = None
 
             # Calculate relative strength (outperformance vs benchmark)
             if spy_perf_3m is not None:
@@ -621,6 +659,37 @@ def coin_analysis(
                 "sector_info": {
                     "sector": screener_data.get('sector') if is_stock_exchange else None,
                     "industry": screener_data.get('industry') if is_stock_exchange else None,
+                },
+                "pivot_analysis": {
+                    "pivot_r1": round(pivot_r1, 2) if pivot_r1 else None,
+                    "pivot_r2": round(pivot_r2, 2) if pivot_r2 else None,
+                    "pivot_r3": round(pivot_r3, 2) if pivot_r3 else None,
+                    "pivot_middle": round(pivot_middle, 2) if pivot_middle else None,
+                    "pivot_s1": round(pivot_s1, 2) if pivot_s1 else None,
+                    "pivot_s2": round(pivot_s2, 2) if pivot_s2 else None,
+                    "pivot_s3": round(pivot_s3, 2) if pivot_s3 else None,
+                    "distance_to_r1_pct": distance_to_r1_pct,
+                    "distance_to_r2_pct": distance_to_r2_pct,
+                    "distance_to_s1_pct": distance_to_s1_pct,
+                    "breakout_proximity": "CLOSE" if distance_to_r1_pct is not None and distance_to_r1_pct <= 3 else "FAR" if distance_to_r1_pct else None,
+                },
+                "base_analysis": {
+                    "high_3m": round(high_3m, 2) if high_3m else None,
+                    "low_3m": round(low_3m, 2) if low_3m else None,
+                    "high_6m": round(high_6m, 2) if high_6m else None,
+                    "low_6m": round(low_6m, 2) if low_6m else None,
+                    "base_depth_3m_pct": base_depth_3m_pct,
+                    "base_depth_6m_pct": base_depth_6m_pct,
+                    "valid_base_depth": valid_base_depth,
+                    "position_in_base_pct": position_in_base_pct,
+                    "near_base_top": position_in_base_pct <= 15 if position_in_base_pct is not None else None,
+                },
+                "breakout_check": {
+                    "above_pivot_r1": current_price > pivot_r1 if pivot_r1 else None,
+                    "above_52w_high": current_price > high_52w if high_52w else None,
+                    "above_3m_high": current_price > high_3m if high_3m else None,
+                    "volume_confirmed": volume_ratio >= 1.5 if volume_ratio else False,
+                    "valid_breakout": (current_price > pivot_r1 if pivot_r1 else False) and (volume_ratio >= 1.5 if volume_ratio else False),
                 },
                 "risk_data": {
                     "atr": round(atr, 2) if atr else None,
